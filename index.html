@@ -102,12 +102,15 @@
         }
 
         function startMic() {
-            mic.start();
-            mic.getSources().then(devices => {
-                console.log('Microphone access granted');
-            }).catch(err => {
-                console.error('Error accessing microphone:', err);
-            });
+            async function startMic() {
+                try {
+                    await mic.start();
+                    console.log("Microphone started successfully");
+                } catch (err) {
+                    alert("Microphone access denied. Please refresh and allow access.");
+                    console.error("Mic error:", err);
+                }
+            }
         }
 
         function draw() {
