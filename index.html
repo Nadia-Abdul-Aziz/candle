@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blow Out the Candle</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #222;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            width: 100%;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-top: 10px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="instructions">
+        <h2>Blow Out the Candle</h2>
+        <p>Blow into your microphone to blow out the candle flame!</p>
+        <button id="startButton">Allow Microphone Access</button>
+    </div>
+
+    <script>
+        let mic;
+        let candleHeight = 200;
+        let candleWidth = 40;
+        let flameHeight = 80;
+        let flameWidth = 30;
+        let flameX, flameY;
+        let volume = 0;
+        let flameBrightness = 255;
+        let isBlownOut = false;
+        let particles = [];
+        let waxDrops = [];
+        let blowThreshold = 0.1;  // Base threshold for detecting blowing
+        let extinguishThreshold = 0.25;  // Threshold to blow out the candle
+        let flameHealth = 100;  // Flame health that decreases with strong blows
+        let isFlameVisible = true;
+        let canReset = false;
+        let startTime = 0;
+        let micStarted = false;
+        let volumeHistory = [];  // To track volume over time
+
+        function setup() {
+            createCanvas(400, 400);
+            colorMode(HSB, 360, 100, 100, 1);
+
+            flameX = width / 2;
+            flameY = height / 2 - candleHeight / 2 - flameHeight / 2;
+
+            // Setup microphone
+            mic = new p5.AudioIn();
+
+            // Handle button click
+            document.getElementById('startButton').addEventListener('click', function () {
+                if (!micStarted) {
+                    startMic();
+                    document.getElementById('instructions').style.display = 'none';
+                    micStarted = true;
+                }
+            });
+
+            // Create initial wax drops
+            for (let i = 0; i < 5; i++) {
+                createWaxDrop(random(0.2, 0.8));
+            }
+        }
+
+        function startMic() {
+            mic.start();
+            mic.getSources().then(devices => {
+                console.log('Microphone access granted');
+            }).catch(err => {
+                console.error('Error accessing microphone:', err);
+            });
+        }
+
+        function draw() {
+            background(220, 10, 10);
+
+            if (micStarted) {
+                // Get microphone volume
+                volume = mic.getLevel();
+
+                // Add current volume to history for smoothing
+                volumeHistory.push(volume);
+                if (volumeHistory.length > 5) {
+                    volumeHistory.shift();
+                }
+
+                // Calculate peak volume
+                let peakVolume = 0;
+                for (let v of volumeHistory) {
+                    peakVolume = max(peakVolume, v);
+                }
+
+                // Debug display
+                fill(0);
+                text("Mic level: " + nf(volume, 1, 3), 10, 20);
+                text("Peak level: " + nf(peakVolume, 1, 3), 10, 40);
+                text("Flame health: " + int(flameHealth), 10, 60);
+
+                // Check if blow is detected
+                if (volume > blowThreshold && !isBlownOut) {
+                    // Calculate flame impact based on blow strength
+                    let impact = map(volume, blowThreshold, extinguishThreshold, 1, 10);
+                    impact = constrain(impact, 1, 10);
+
+                    // Reduce flame health based on blow strength
+                    flameHealth -= impact;
+                    flameHealth = constrain(flameHealth, 0, 100);
+
+                    // Map flame brightness to health
+                    flameBrightness = map(flameHealth, 0, 100, 0, 255);
+
+                    // Create particles from flame based on blow strength
+                    for (let i = 0; i < volume * 20; i++) {
+                        particles.push(new Particle(
+                            flameX + random(-flameWidth / 3, flameWidth / 3),
+                            flameY + random(-flameHeight / 3, flameHeight / 3)
+                        ));
+                    }
+
+                    // Immediate extinguish with very strong blow
+                    if (peakVolume > extinguishThreshold || flameHealth <= 0) {
+                        isBlownOut = true;
+                        isFlameVisible = false;
+                        startTime = millis();
+
+                        // Create final particles burst
+                        for (let i = 0; i < 50; i++) {
+                            particles.push(new Particle(flameX, flameY));
+                        }
+                    }
+                } else if (flameHealth < 100 && !isBlownOut) {
+                    // Slowly recover flame if not blown out completely
+                    flameHealth += 0.2;
+                    flameBrightness = map(flameHealth, 0, 100, 0, 255);
+                }
+
+                // Calculate flame movement based on volume
+                let flameMovement = map(volume, 0, 0.5, 0, 20);
+
+                // Update and display candle and flame
+                drawCandle();
+
+                // Draw smoke after flame is blown out
+                if (isBlownOut) {
+                    drawSmoke();
+
+                    // Enable reset after 3 seconds
+                    if (millis() - startTime > 3000) {
+                        canReset = true;
+                        text("Click to relight the candle", width / 2 - 80, height - 20);
+                    }
+                }
+
+                // Draw flame if not blown out
+                if (isFlameVisible) {
+                    drawFlame(flameMovement);
+                }
+
+                // Update and draw particles
+                updateParticles();
+
+                // Update and draw wax drops
+                updateWaxDrops();
+
+                // Occasionally create new wax drops
+                if (random() < 0.01 && !isBlownOut) {
+                    createWaxDrop(random(0.2, 0.8));
+                }
+            }
+        }
+
+        function drawCandle() {
+            // Draw candle body
+            fill(45, 10, 95);
+            rect(width / 2 - candleWidth / 2, height / 2 - candleHeight / 2, candleWidth, candleHeight, 5, 5, 0, 0);
+
+            // Draw candle wick
+            fill(30, 60, 30);
+            rect(width / 2 - 2, height / 2 - candleHeight / 2 - 15, 4, 15);
+        }
+
+        function drawFlame(movement) {
+            // Base flame position
+            flameY = height / 2 - candleHeight / 2 - flameHeight / 2;
+
+            // Draw outer flame glow
+            noStroke();
+            for (let i = 3; i > 0; i--) {
+                let size = i * 0.5;
+                let alpha = map(i, 0, 3, 0.1, 0.5);
+                fill(30, 100, flameBrightness, alpha);
+                ellipse(
+                    flameX + sin(frameCount * 0.1) * movement,
+                    flameY + cos(frameCount * 0.05) * movement / 2,
+                    flameWidth * 1.5 * size,
+                    flameHeight * size
+                );
+            }
+
+            // Draw main flame
+            fill(30, 100, flameBrightness, 0.9);
+            beginShape();
+            for (let i = 0; i <= 20; i++) {
+                let angle = map(i, 0, 20, 0, TWO_PI);
+                let xOff = map(cos(angle), -1, 1, -flameWidth / 2, flameWidth / 2);
+                let yOff = map(sin(angle), -1, 1, -flameHeight / 2, flameHeight / 2);
+
+                // Add some wobble
+                let wobble = sin(frameCount * 0.1 + i * 0.5) * movement;
+                let x = flameX + xOff + wobble;
+                let y = flameY + yOff * (1 + sin(frameCount * 0.05) * 0.1);
+
+                vertex(x, y);
+            }
+            endShape(CLOSE);
+
+            // Draw inner flame
+            fill(50, 100, 100, 0.8);
+            ellipse(
+                flameX + sin(frameCount * 0.1) * movement / 2,
+                flameY + cos(frameCount * 0.05) * movement / 3,
+                flameWidth * 0.5,
+                flameHeight * 0.6
+            );
+        }
+
+        function drawSmoke() {
+            noStroke();
+
+            // Create new smoke particles
+            if (random() < 0.3) {
+                particles.push(new SmokeParticle(width / 2, height / 2 - candleHeight / 2 - 10));
+            }
+        }
+
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = random(-2, 2);
+                this.vy = random(-1, -3);
+                this.alpha = 1;
+                this.size = random(3, 6);
+                this.color = color(30, 100, 100, this.alpha);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                this.alpha -= 0.03;
+                this.size *= 0.95;
+            }
+
+            display() {
+                noStroke();
+                fill(30, 100, 100, this.alpha);
+                ellipse(this.x, this.y, this.size);
+            }
+
+            isDead() {
+                return this.alpha <= 0;
+            }
+        }
+
+        class SmokeParticle extends Particle {
+            constructor(x, y) {
+                super(x, y);
+                this.vx = random(-0.5, 0.5);
+                this.vy = random(-1, -2);
+                this.alpha = 0.3;
+                this.size = random(5, 15);
+                this.color = color(0, 0, 100, this.alpha);
+            }
+
+            update() {
+                this.x += this.vx + sin(frameCount * 0.05 + this.x * 0.01) * 0.3;
+                this.y += this.vy;
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+                this.alpha -= 0.005;
+                this.size *= 1.01;
+            }
+
+            display() {
+                noStroke();
+                fill(0, 0, 70, this.alpha);
+                ellipse(this.x, this.y, this.size);
+            }
+        }
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].display();
+
+                if (particles[i].isDead()) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function createWaxDrop(position) {
+            waxDrops.push({
+                x: width / 2 - candleWidth / 2 + candleWidth * position,
+                y: height / 2 - candleHeight / 2,
+                size: random(5, 10),
+                speed: random(0.2, 0.5),
+                distance: random(10, 30),
+                traveled: 0
+            });
+        }
+
+        function updateWaxDrops() {
+            fill(45, 10, 95);
+            noStroke();
+
+            for (let i = waxDrops.length - 1; i >= 0; i--) {
+                let drop = waxDrops[i];
+
+                // Move drop down
+                if (drop.traveled < drop.distance) {
+                    drop.y += drop.speed;
+                    drop.traveled += drop.speed;
+
+                    // Draw wax drop
+                    ellipse(drop.x, drop.y, drop.size);
+                } else {
+                    // Draw solidified wax
+                    ellipse(drop.x, drop.y, drop.size * 1.2, drop.size * 0.8);
+
+                    // Remove old drops
+                    if (random() < 0.001) {
+                        waxDrops.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        function mousePressed() {
+            // Relight the candle when clicked after it's been blown out
+            if (isBlownOut && canReset) {
+                isBlownOut = false;
+                isFlameVisible = true;
+                flameHealth = 100;
+                flameBrightness = 255;
+                canReset = false;
+                particles = [];
+            }
+        }
+    </script>
+</body>
+
+</html>
