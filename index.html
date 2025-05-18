@@ -6,28 +6,70 @@
     <title>Mic Audio Detector</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #111;
+            color: white;
+            font-family: sans-serif;
+        }
+
+        #warning {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: #c0392b;
+            padding: 10px 15px;
+            border-radius: 5px;
+            display: none;
+        }
+    </style>
 </head>
 
 <body>
+    <div id="warning">⚠️ Microphone access denied or not available. Please allow access and reload.</div>
+
     <script>
         let mic;
         let amplitude;
+        let micStarted = false;
 
         function setup() {
             createCanvas(400, 400);
+
             mic = new p5.AudioIn();
-            mic.start();
-            amplitude = new p5.Amplitude();
-            amplitude.setInput(mic);
+
+            mic.start(
+                () => {
+                    // Success callback: mic started
+                    amplitude = new p5.Amplitude();
+                    amplitude.setInput(mic);
+                    micStarted = true;
+                },
+                () => {
+                    // Error callback: mic not allowed
+                    document.getElementById('warning').style.display = 'block';
+                }
+            );
         }
 
         function draw() {
             background(30);
-            let level = amplitude.getLevel();
-            let size = map(level, 0, 0.3, 10, 300);
-            fill(0, 255, 150);
-            noStroke();
-            ellipse(width / 2, height / 2, size, size);
+
+            if (micStarted) {
+                let level = amplitude.getLevel();
+                let size = map(level, 0, 0.3, 10, 300);
+                fill(0, 255, 150);
+                noStroke();
+                ellipse(width / 2, height / 2, size, size);
+            } else {
+                fill(200);
+                noStroke();
+                textAlign(CENTER, CENTER);
+                textSize(16);
+                text('Waiting for microphone access...', width / 2, height / 2);
+            }
         }
     </script>
 </body>
